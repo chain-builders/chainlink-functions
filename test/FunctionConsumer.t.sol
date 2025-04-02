@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import "forge-std/Test.sol";
-import "../src/APIConsumer.sol";
+// import "forge-std/Function.sol";
+import "../src/FunctionConsumer.sol";
 import {FunctionsRouter} from "@chainlink/functions/v1_0_0/FunctionsRouter.sol";
 
 contract MockFunctionsRouter is FunctionsRouter {
@@ -69,7 +69,7 @@ contract APIConsumerTest is Test {
         string memory id = "1";
         
         vm.expectEmit(true, false, false, false);
-        emit RequestSent(bytes32(0))
+        emit RequestSent(bytes32(0));
         
         bytes32 requestId = apiConsumer.requestAPIData(endpoint, id);
         
