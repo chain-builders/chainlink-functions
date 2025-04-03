@@ -5,47 +5,40 @@ import {FunctionsClient} from "@chainlink/functions/v1_0_0/FunctionsClient.sol";
 import {ConfirmedOwner} from "@chainlink/shared/access/ConfirmedOwner.sol";
 import {FunctionsRequest} from "@chainlink/functions/v1_0_0/libraries/FunctionsRequest.sol";
 
-contract APIConsumer is FunctionsClient, ConfirmedOwner {
+contract JSONPlaceholderConsumer is FunctionsClient, ConfirmedOwner {
     using FunctionsRequest for FunctionsRequest.Request;
 
-  
-    bytes32 public donId; 
-    uint64 public subscriptionId; 
-    uint32 public gasLimit = 300000; 
+    // Chainlink Configuration
+    bytes32 public donId;
+    uint64 public subscriptionId;
+    uint32 public gasLimit = 300000;
 
-   
-    string public source =
-        "const endpoint = args[0] || 'posts';"
-        "const id = args[1] || '0';"
-        "const apiUrl = `https://jsonplaceholder.typicode.com/${endpoint}`;"
-        "const finalUrl = parseInt(id) > 0 ? `${apiUrl}/${id}` : apiUrl;"
-        "try {"
-        "  const apiResponse = await Functions.makeHttpRequest({ url: finalUrl, method: 'GET' });"
-        "  if (!apiResponse || apiResponse.status >= 300) {"
-        "    throw new Error(`Request failed with status ${apiResponse?.status}`);"
-        "  }"
-        "  const responseData = apiResponse.data;"
-        "  let processedData;"
-        "  if (Array.isArray(responseData)) {"
-        "    processedData = responseData.slice(0, 1).map(item => ({ id: item.id, title: item.title?.substring(0, 20) || '' }));"
-        "  } else {"
-        "    processedData = { id: responseData.id, title: responseData.title?.substring(0, 20) || '' };"
-        "  }"
-        "  const resultString = JSON.stringify(processedData);"
-        "  if (resultString.length > 200) {"
-        "    return Functions.encodeString(JSON.stringify({ error: 'Response too large' }));"
-        "  }"
-        "  return Functions.encodeString(resultString);"
-        "} catch (error) {"
-        "  return Functions.encodeString(JSON.stringify({ error: 'Request failed', message: error.message.substring(0, 50) }));"
-        "}";
-
+    // API Response Storage
     bytes public lastResponse;
-    error UnexpectedRequestID(bytes32 requestId);
+    string public lastUserName; 
 
-   
-    // event RequestSent(bytes32 indexed requestId);
-    event ResponseReceived(bytes32 indexed requestId, bytes response, bytes err);
+    // Custom Errors
+    error EmptyUserId();
+    error RequestFailed(bytes err);
+
+    // Events
+    event RequestSent(bytes32 indexed requestId, string userId);
+    event ResponseReceived(
+        bytes32 indexed requestId, 
+        string userName,
+        bytes response,
+        bytes err
+    );
+
+    string source =
+        "const userId = args[0];" // No default - we validate in Solidity
+        "const response = await Functions.makeHttpRequest({"
+        "  url: `https://jsonplaceholder.typicode.com/users/${userId}`"
+        "});"
+        "if (response.error) {"
+        "  throw Error('API request failed');"
+        "}"
+        "return Functions.encodeString(response.data.name);";
 
     constructor(
         address router,
@@ -56,39 +49,58 @@ contract APIConsumer is FunctionsClient, ConfirmedOwner {
         subscriptionId = _subscriptionId;
     }
 
-    function requestAPIData(
-        string calldata endpoint,
-        string calldata id
+    /**
+     * @notice Fetches user data from JSONPlaceholder API
+     * @param userId The user ID to fetch (1-10 for test data)
+     */
+    function fetchUserData(
+        string calldata userId
     ) external onlyOwner returns (bytes32 requestId) {
-        string[] memory args = new string[](2);
-        args[0] = endpoint;
-        args[1] = id;
+        if (bytes(userId).length == 0) revert EmptyUserId();
+
+        string[] memory args = new string[](1);
+        args[0] = userId;
 
         FunctionsRequest.Request memory req;
-        req.initializeRequestForInlineJavaScript(source); 
-        req.setArgs(args); 
+        req.initializeRequestForInlineJavaScript(source);
+        req.setArgs(args);
 
-        
         requestId = _sendRequest(
             req.encodeCBOR(),
             subscriptionId,
             gasLimit,
             donId
         );
-        emit RequestSent(requestId);
+
+        emit RequestSent(requestId, userId);
         return requestId;
     }
 
+    /**
+     * @notice Chainlink callback with API response
+     */
     function fulfillRequest(
         bytes32 requestId,
         bytes memory response,
         bytes memory err
     ) internal override {
         lastResponse = response;
-        emit ResponseReceived(requestId, response, err);
+        
+        if (err.length > 0) {
+            revert RequestFailed(err);
+        }
+        
+        lastUserName = string(response);
+        emit ResponseReceived(requestId, lastUserName, response, err);
     }
 
-    function decodeResponse() public view returns (string memory) {
-        return string(lastResponse);
+    function updateChainlinkConfig(
+        uint64 newSubscriptionId,
+        uint32 newGasLimit,
+        bytes32 newDonId
+    ) external onlyOwner {
+        subscriptionId = newSubscriptionId;
+        gasLimit = newGasLimit;
+        donId = newDonId;
     }
 }

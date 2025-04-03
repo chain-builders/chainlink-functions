@@ -12,9 +12,14 @@ contract DeployAPIConsumer is Script {
         uint64 subscriptionId = uint64(vm.envUint("CHAINLINK_SUBSCRIPTION_ID"));
 
         vm.startBroadcast(deployerPrivateKey);
-        APIConsumer apiConsumer = new APIConsumer(router, donId, subscriptionId);
+        JSONPlaceholderConsumer consumer = new JSONPlaceholderConsumer(
+            router,
+            donId,
+            subscriptionId
+        );
+
         vm.stopBroadcast();
 
-        console.log("Deployed APIConsumer at:", address(apiConsumer));
+        console.log("Deployed APIConsumer at:", address(consumer));
     }
 }
